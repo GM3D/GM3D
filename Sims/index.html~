@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset=utf-8>
+		<title>Javascript Math/Physics simulations</title>
+	</head>
+	<body>
+        <a href="scherk.html">Scherk's Minimal Surface</a>
+        Move small black dot in the left panel (which represents complex parameter w) using mouse and see how the mapped point on the right moves.
+        Hitting "s" key halts update (moving mouse again onto the dot resumes update).
+        Hitting "g" key toggles guide lines.
+    </body>

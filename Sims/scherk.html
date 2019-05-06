@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset=utf-8>
+		<title>Scherk's Minimal Surface</title>
+		<style>
+			body { margin: 0; }
+			canvas { width: 100%; height: 100% }
+		</style>
+	</head>
+	<body>
+        <!-- <p id="info">debug info shown here</p> -->
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r78/three.js"></script>
+		<script>
+         // everyone loves pi.
+         var PI = Math.PI;
+         var width = window.innerWidth;
+         var height = window.innerHeight;
+         // 0.0 <= aspect <= 1.0
+         var aspect = height / width;
+
+         // left part and right part are treated as separatea scenes.
+         var scene1, camera1;
+         var scene2, camera2;
+         // using common  renderer since two renderers in one canvas
+         // does not seem to be supported.
+         var renderer;
+
+         // flag to indicate simulation should start.
+         // it is false untill mouse reaches the origin first.
+         var sim_on = false;
+         var prev_mouse, mouse;
+         var dot, dot2;
+         // guiding lines on scene1
+         var gl1, gl2;
+
+         // r; world scale. world width is exactly 2 * r
+         // with x = -r to +r
+         var r = 5.0;
+
+         // w: complex parameter for Scherk's minimal surface.
+         // previous w and increment from prev value.
+         var w, prev, delta;
+
+         // ps: fixed points 1, -1, i, -i respectively
+         // p: contains them in Vector2 array
+         var ps = [0, -1, 0, 1, -1, 0, 1, 0];
+         var p;
+
+         // w's displacement from p[i]'s
+         var v;
+         // and angles of v measured from the direction of positive x-axis
+         // along with its initial value and increment.
+         var args0, args, prev_args;
+
+         init();
+         animate();
+
+         function init(){
+             prev_mouse = new THREE.Vector2(0, 0);
+             mouse = new THREE.Vector2(0, 0);
+             w = new THREE.Vector2(0, 0);
+             prev = new THREE.Vector2(0, 0);
+             delta = new THREE.Vector2(0, 0);
+             p = [];
+             v = [];
+             for(i = 0; i < 4; i++){
+                 p[i] = new THREE.Vector2(ps[2 * i], ps[2*i + 1]);
+                 v[i] = new THREE.Vector2();
+             }
+             args0 = [PI/2, 3*PI/2, 0, PI];
+             args = [PI/2, 3*PI/2, 0, PI];
+             prev_args = [PI/2, 3*PI/2, 0, PI];
+             renderer = new THREE.WebGLRenderer();
+             renderer.setSize(width, height);
+             document.addEventListener('mousemove', 
+                                       onDocumentMouseMove, false);
+             document.addEventListener('keypress', 
+                                       onKeyPress, false);
+             document.body.appendChild(renderer.domElement);
+             scene1 = new THREE.Scene();
+             scene2 = new THREE.Scene();
+             setup_scene1();
+             setup_scene2();
+             // camera1's view frustrum is exactly half the size
+             // of the internal space (of which width = 2*r)
+             camera1 = new 
+             THREE.OrthographicCamera(-r / 2, r / 2, 
+                                      r * aspect, -r * aspect,
+                                      1, 1000);
+             camera1.position.z = 5;
+             scene1.add(camera1);
+             camera2 = new
+             THREE.OrthographicCamera(-r /2 , r / 2 ,
+                                      r * aspect, -r * aspect,
+                                      1, 1000);
+             camera2.position.z = 5;
+             scene2.add(camera2);
+             console.log("end of initialization.");
+         }
+
+         function setup_scene1(){
+             var plane_geom = new THREE.PlaneGeometry(4, 4);
+             var dot_geom = new THREE.CircleGeometry(0.05, 16);
+             var mat_ivory = new THREE.MeshBasicMaterial({color: 0xffeeff});
+             var mat_black = new THREE.MeshBasicMaterial({color: 0x000000});
+             var w_plane = new THREE.Mesh(plane_geom, mat_ivory);
+             scene1.add(w_plane);
+             dot = new THREE.Mesh(dot_geom, mat_black);
+             scene1.add(dot);
+
+             make_cuts(0, 0, 1.0);
+             make_aux_lines();
+             label_data1 = [
+                 {text: "+1", bg_color: "0xffeeff",
+                  top: 0.5 - 0.01, left: 3/8 - 0.01},
+                 {text: "-1", bg_color: "0xffeeff",
+                  top: 0.5 - 0.01, left: 1/8 - 0.01},
+                 {text: "+i", bg_color: "0xffeeff",
+                  top: 0.33 - 0.01, left: 1/4 - 0.01},
+                 {text: "-i", bg_color: "0xffeeff",
+                  top: 0.67 - 0.01, left: 1/4 - 0.01}
+             ];
+             setup_labels(label_data1);
+         }
+
+         function setup_scene2(){
+             var colors = [0xFFFFFF, 0xBBBBFF];
+             var plane_geom = new THREE.PlaneGeometry(1, 1);
+             var i0 = 4
+             var j0 = 4;
+             var xy_tiles = [];
+             for(i = 0; i < i0; i++){
+                 xy_tiles[i] = [];
+                 for(j = 0; j < j0; j++){
+                     var color_opt = {color: colors[(i + j) % 2]};
+                     var mat = new THREE.MeshBasicMaterial(color_opt);
+                     xy_tiles[i][j] = new THREE.Mesh(plane_geom, mat);
+                     xy_tiles[i][j].position.set(i - i0 / 2 + 0.5,
+                                                 j - j0 / 2 + 0.5,
+                                                 0);
+                     scene2.add(xy_tiles[i][j]);
+                 }
+             }
+             label_data = [];
+             for(i = 0; i < i0; i++){
+                 for(j = 0; j < j0; j++){
+                     if((i + j)%2 == 1){
+                         label_data.push({
+                             text: "S(" + (1 - i) + ", " + (j - 2) + ")",
+                             bg_color: colors[(i + j) % 2],
+                             top: i * 0.2 + 0.19,
+                             left: j * 0.1 + 0.59});
+                     }
+                 }
+             }
+             setup_labels(label_data);
+
+             var dot_geom = new THREE.CircleGeometry(0.05, 16);
+             var mat_black = new THREE.MeshBasicMaterial({color: 0x000000});
+             dot2 = new THREE.Mesh(dot_geom, mat_black);
+             scene2.add(dot2);
+
+         }
+
+         function setup_labels(label_data){
+             var labels = []
+             for(i = 0; i < label_data.length; i++){
+                 labels.push(document.createElement('div'));
+                 labels[i].style.position = 'absolute';
+                 labels[i].style.width = 100;
+                 labels[i].style.height = 100;
+                 labels[i].style.backgroundColor = label_data[i].bg_color;
+                 labels[i].innerHTML = label_data[i].text;
+                 labels[i].style.top = height * label_data[i].top + 'px';
+                 labels[i].style.left = width * label_data[i].left + 'px';
+                 document.body.appendChild(labels[i]);
+             }
+         }
+
+         function make_cuts(x, y, r){
+             var circle_width = 4;
+             var z = 1;
+             make_arc(x, y, r,
+                         0, PI / 2, 
+                         0xFF0000, circle_width, false);
+             make_arc(x, y, r,
+                         PI / 2, PI,
+                         0x808080, circle_width, true);
+             make_arc(x, y, r,
+                         PI, PI * 1.5,
+                         0x00FF00, circle_width, false);
+             make_arc(x, y, r,
+                         PI * 1.5, PI * 2.0,
+                         0x0000FF, circle_width, false);
+             var white = 0xFFFFFF;
+             var black = 0x000000;
+             var r_pole = 0.05, width_pole = 4;
+             make_lined_circle(x - r, y, r_pole, width_pole,
+                               white, black);
+             make_lined_circle(x + r, y, r_pole, width_pole,
+                               white, black);
+             make_lined_circle(x, y - r, r_pole, width_pole,
+                               white, black);
+             make_lined_circle(x, y + r, r_pole, width_pole,
+                               white, black);
+         }
+         
+         function make_aux_lines(){
+             var width = 1;
+             var geometry1 = new THREE.Geometry();
+             geometry1.dynamic = true;
+             geometry1.vertices.push(new THREE.Vector3(p[0].x, p[0].y, 0));
+             geometry1.vertices.push(new THREE.Vector3(w.x, w.y, 0));
+             geometry1.vertices.push(new THREE.Vector3(p[1].x, p[1].y, 0));
+             geometry1.computeLineDistances();
+             var color1 = 0x0000AA;
+             var options = {color:color1, linewidth:width};
+             var line_mat1 = new THREE.LineBasicMaterial(options);
+             gl1 = new THREE.Line(geometry1, line_mat1);
+             scene1.add(gl1);
+             
+             var geometry2 = new THREE.Geometry();
+             geometry2.dynamic = true;
+             geometry2.vertices.push(new THREE.Vector3(p[2].x, p[2].y, 0));
+             geometry2.vertices.push(new THREE.Vector3(w.x, w.y, 0));
+             geometry2.vertices.push(new THREE.Vector3(p[3].x, p[3].y, 0));
+             geometry2.computeLineDistances();
+             var color2 = 0xEE0000;
+             var options = {color:color2, linewidth:width};
+             var line_mat2 = new THREE.LineBasicMaterial(options);
+             gl2 = new THREE.Line(geometry2, line_mat2);
+             scene1.add(gl2);
+
+             for(y of [1, 0, -1]){
+                 var geometry = new THREE.Geometry();
+                 geometry.vertices.push(new THREE.Vector3(-2, y, 0));
+                 geometry.vertices.push(new THREE.Vector3(2, y, 0));
+                 geometry.computeLineDistances();
+                 var color = 0x000000;
+                 var options = {color:color, linewidth:width};
+                 var material = new THREE.LineBasicMaterial(options);
+                 var line = new THREE.Line(geometry, material);
+                 scene1.add(line);
+             }
+         }
+
+         function make_arc(x, y, r, start, end, color, width, dashed){
+             var curve = new THREE.EllipseCurve(
+                 x, y, r, r, start, end, false);
+             var points = curve.getSpacedPoints(10);
+             var path = new THREE.Path();
+             var geometry = path.createGeometry(points);
+             geometry.computeLineDistances();
+             var material;
+             if(dashed){
+                 options = {dashSize:0.1, gapSize:0.06, 
+                            color:color, linewidth:width};
+                 material = new THREE.LineDashedMaterial(options);
+             }else{
+                 options = {color:color, linewidth:width};
+                 material = new THREE.LineBasicMaterial(options);
+             }
+             var line = new THREE.Line(geometry, material);
+             scene1.add(line);
+         }
+         
+         function make_lined_circle(x, y, r, width, color1, color2)
+         {
+             var mat_color1 = new THREE.MeshBasicMaterial(color1);
+             var mat_color2 = new THREE.MeshBasicMaterial(color2);
+             var geom_pole = new THREE.CircleGeometry(r, 16);
+             var pole = new THREE.Mesh(geom_pole, mat_color1);
+             var z = 1.0;
+             pole.position.set(x, y, z);
+             make_arc(x, y, r,
+                      0, PI * 2, 
+                      color2,
+                      width, false);
+             scene1.add(pole);
+         }
+
+         function onDocumentMouseMove(event){
+             prev_mouse.copy(mouse);
+             /* -r <= mouse.x < r */
+			 mouse.x = r * ((event.clientX / width) * 2 - 1) + r / 2;
+             /* -r*aspect  <= mouse.y < r*aspect */
+			 mouse.y = r * (-(event.clientY - height / 2) / width) * 2;
+             // start updating once mouse comes to center dot.
+             if(!sim_on){
+                 if(prev_mouse.distanceTo(w) > 0.05 &&
+                    mouse.distanceTo(w) <= 0.05){
+                     sim_on = true;
+                 }
+             }
+             /* convert to cartesian coordinate */
+             /* center = (0, 0), positive dir = up, right */
+             if(sim_on){
+                 prev.copy(w);
+			     w.copy(mouse);
+                 dot.position.set(w.x, w.y, 0);
+                 /* document.getElementById("info").innerHTML = 
+                  *     "window size = (" + width + ", " + height + "), " +
+                  *     "event x: " + event.clientX + ", y: " + event.clientY +
+                  *     ", w x: " + w.x + ", y: " + w.y;*/
+
+                 // delta = prev - w
+                 delta.subVectors(prev, w);
+                 // 0 : w + i, 1: w - i, 2 : w + 1, 3: w - 1
+                 for(i = 0; i < 4; i++){
+                     v[i].subVectors(w, p[i]);
+                     args0[i] = Math.atan2(v[i].y, v[i].x);
+                 }
+                 args0[0] = into_range(0, 2.0*PI, args0[0]);
+                 args0[1] = into_range(0, 2.0*PI, args0[1]);
+                 args0[2] = into_range(-0.5*PI, 1.5*PI, args0[2]);
+                 args0[3] = into_range(-0.5*PI, 1.5*PI, args0[3]);
+                 // dargs = small diff of args constrained to move
+                 // smoothly
+                 var dargs = [];
+                 var raw_args = [];
+                 for(i = 0; i < 4; i++){
+                     var r2 = v[i].lengthSq();
+                     prev_args[i] = args[i];
+                     // continuous change of args.
+                     // suppose arg w.r.t. p[i] is given by f
+                     // f = atan((y - p[i].y)/(x - p[i].x))
+                     // then df is calculated as (total derivative)
+                     // df = dx * (df/dx) + dy * (df/dy)
+                     // where df/dx, df/dy are partial derivatives.
+                     dargs[i] = (-v[i].y * delta.x + v[i].x * delta.y) / r2;
+                     // thus args are always updated continuously up to here,
+                     // but this can cause cumulative errors.
+                     args[i] += dargs[i]
+                     // to get rid of them, normalize args so that they are 
+                     // precisely equal to args0 up to 2*pi * n
+                     // get the "n" of 2*pi*n difference.
+                     var wind_num_diff = 
+                         Math.round((args[i] - args0[i]) / (2 * PI));
+                     // trust args for only winding number and use
+                     // args0 for precise location.
+                     raw_args[i] = args[i];
+                     args[i] = args0[i] + 2 * PI * wind_num_diff;
+                 }
+                 // (x, y): mapped position of w in unit of pi
+                 var x = (args[0] - args[1]) / PI + 0.5;
+                 var y = (args[2] - args[3]) / PI + 0.5;
+                 /* console.log("-----------");
+                  * console.log("args0 = " + args0);
+                  * console.log("raw_args = " + raw_args);
+                  * console.log("args = " + args);
+                  * console.log("x, y = " + x + ", " + y);*/
+                 dot2.position.set(x, y, 0);
+                 gl1.geometry.vertices[1].setX(w.x);
+                 gl1.geometry.vertices[1].setY(w.y);
+                 gl2.geometry.vertices[1].setX(w.x);
+                 gl2.geometry.vertices[1].setY(w.y);
+                 gl1.geometry.verticesNeedUpdate = true;
+                 gl2.geometry.verticesNeedUpdate = true;
+             }
+		 }
+         
+         function into_range(a, b, x){
+             if(x < a){
+                 x += 2 * PI;
+             }else if(b <= x){
+                 x -= 2 * PI;
+             }
+             return x;
+         }
+
+         function render(){
+             // render left area
+             renderer.setViewport(0, 0, 0.5 * width, height);
+             renderer.setScissor(0, 0, 0.5 * width, height);
+             renderer.setScissorTest(true);
+	         renderer.render(scene1, camera1);
+             // render right area
+             renderer.setViewport(0.5 * width, 0, 0.5 * width, height);
+             renderer.setScissor(0.5 * width, 0, 0.5 * width, height);
+             renderer.setScissorTest(true);
+	         renderer.render(scene2, camera2);
+         }
+
+         function update(){
+         }
+
+         function onKeyPress(event){
+             var key = String.fromCharCode(event.which);
+             switch(key){
+                 case "s":
+                     sim_on = false;
+                     break;
+                 case "g":
+                     gl1.visible = !gl1.visible;
+                     gl2.visible = !gl2.visible;
+                     break;
+                 default:
+                     // do nothing
+             }
+             console.log("---");
+         }
+
+         function animate(){
+	         requestAnimationFrame(animate);
+             render();
+             update();
+             /* cube.rotation.x += 0.01;
+              * cube.rotation.y += 0.01;*/
+         }
+		</script>
+	</body>
+</html>
